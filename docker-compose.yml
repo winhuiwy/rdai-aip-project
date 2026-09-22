@@ -1,0 +1,17 @@
+services:
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+
+  ui:
+    build: ./ui
+    ports:
+      - "7860:7860"
+    environment:
+      # Inside the Docker Compose network, services reach each other by
+      # service name — "backend" resolves to the backend container's IP,
+      # no localhost/port-mapping involved.
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      - backend

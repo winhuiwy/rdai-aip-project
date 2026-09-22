@@ -15,12 +15,17 @@ project/
 │   └── main.py        # FastAPI app: HTTP endpoints
 ├── chat.py               # local script for an interactive back-and-forth chat
 ├── requirements.txt    # Python dependencies (pinned versions)
-├── Dockerfile           # how to build the container image
+├── Dockerfile           # how to build the backend's container image
 ├── .dockerignore
+├── ui/                    # Gradio chat UI (separate service, see below)
+│   ├── app.py
+│   ├── requirements.txt
+│   └── Dockerfile
+├── docker-compose.yml    # runs backend + ui together
 └── README.md
 ```
 
-## Running it
+## Running just the API
 
 ```bash
 docker build -t simple-llm-server .
@@ -70,6 +75,63 @@ python chat.py
 It just loops: read what you type, append it to a local `messages` list,
 POST the whole list to `/chat`, print the reply, append that reply too, and
 repeat.
+
+## Running the full app (API + web chat UI)
+
+For an actual chat webpage instead of curl/`chat.py`, this project also
+ships a small [Gradio](https://www.gradio.app/) UI as a **second service**,
+alongside the FastAPI backend. `docker-compose.yml` builds and runs both
+together with one command:
+
+```bash
+docker compose up --build
+```
+
+Then open **http://localhost:7860** in a browser — that's the chat UI.
+(The API itself is still directly reachable at http://localhost:8000, same
+as before.)
+
+### Why a separate service, and how they talk to each other
+
+`ui/app.py` holds no model and does no inference itself — it's just a
+webpage (rendered by Gradio) that, on every message you send, calls the
+backend's `POST /chat` over plain HTTP, exactly like `chat.py` does. Keeping
+it separate from the backend means:
+- The UI container is tiny and builds in seconds (no PyTorch, no model
+  weights) — it only needs `gradio` and `requests`.
+- Either piece can be redeployed, scaled, or replaced independently (e.g.
+  swap this UI for a different frontend later without touching the model
+  server at all).
+
+`docker-compose.yml` defines two **services**, `backend` and `ui`, each
+built from its own Dockerfile. Compose automatically creates a private
+Docker network for them and registers each service's name as a DNS
+hostname on that network — so from inside the `ui` container,
+`http://backend:8000` reaches the backend container directly, without going
+through your machine's `localhost` or the `-p 8000:8000` port mapping at
+all (that mapping is only for reaching it from *outside* Docker, i.e. from
+your browser or curl). That's what the `BACKEND_URL=http://backend:8000`
+environment variable in `docker-compose.yml` is for.
+
+`depends_on: [backend]` just controls **start order** (Compose starts
+`backend` first) — it does not wait for the backend to be ready to serve
+requests, only for its container process to have started. That's a fine
+simplification for local development; a production setup would add a
+proper healthcheck-based wait instead.
+
+### A real gotcha this project hit: unpinned transitive dependencies
+
+`ui/requirements.txt` pins not just `gradio`, but also `huggingface_hub`,
+`fastapi`, `starlette`, and `jinja2` — packages `gradio` itself depends on
+but that we never call directly. That's not paranoia: while building this,
+installing `gradio==4.44.1` alone pulled in the *latest* versions of those
+libraries (since `gradio` only declares loose lower-bound constraints on
+them), and that combination crashed on startup two different ways (an
+`ImportError` from a function `huggingface_hub` had since removed, and a
+`TypeError` from a Jinja2/Starlette version mismatch inside Gradio's own
+template rendering). Pinning exact versions of a package's key dependencies
+— not just the package itself — is a common real-world fix when a library
+hasn't been updated to track its dependencies' breaking changes.
 
 ## What's actually happening behind the scenes
 
