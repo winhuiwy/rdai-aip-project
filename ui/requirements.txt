@@ -1,0 +1,10 @@
+gradio==4.44.1
+# gradio==4.44.1 predates several breaking changes in its own dependencies
+# (huggingface_hub removed HfFolder; newer starlette/jinja2 broke gradio's
+# template rendering with a "TypeError: unhashable type: 'dict'"). Pinning
+# these to versions contemporaneous with this gradio release avoids both.
+huggingface_hub==0.24.6
+fastapi==0.115.0
+starlette==0.38.6
+jinja2==3.1.4
+requests==2.32.3

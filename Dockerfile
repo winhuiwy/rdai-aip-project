@@ -18,6 +18,13 @@ COPY app ./app
 # up fast; the trade-off is a bigger image and a slower `docker build`.
 RUN python -c "from app.model import model; model.load()"
 
+# The weights are now on disk inside the image, so at runtime there is no
+# need to ever contact Hugging Face Hub again — force offline mode so a
+# from_pretrained() call always uses the local cache directly (faster
+# startup, and works even with no/unreliable network at runtime).
+ENV HF_HUB_OFFLINE=1
+ENV TRANSFORMERS_OFFLINE=1
+
 EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
