@@ -205,7 +205,7 @@ consequences worth knowing:
   the model is loaded. This is a standard production pattern — load
   balancers, Kubernetes, or Docker itself can poll `/health` to know whether
   an instance is actually ready to serve traffic before routing requests to
-  it (not wired into an actual healthcheck yet — see "Ideas for later").
+  it.
 - Uvicorn is the ASGI server that actually listens on a TCP port and hands
   requests to your FastAPI app — FastAPI itself is just the framework/router,
   it doesn't listen on sockets on its own.
@@ -268,16 +268,3 @@ cached independently by Docker:
    and decodes the output tokens back to text.
 6. FastAPI serializes the return value to JSON and sends the HTTP response
    back out through the same path.
-
-## Ideas for later (not built yet, on purpose — keeping v1 simple)
-
-- Streaming responses (token-by-token, like ChatGPT's UI) instead of waiting
-  for the full answer.
-- Docker `HEALTHCHECK` wired to the `/health` endpoint.
-- Concurrency: right now requests are serialized with a lock; a queue or
-  multiple worker processes would let requests overlap.
-- Quantization (e.g. via `bitsandbytes` or GGUF) to shrink memory/CPU use
-  further — this is exactly what the course covers.
-- Swapping in a GPU base image + `nvidia/cuda` runtime if you get access to
-  a GPU machine.
-- Authentication/rate limiting before exposing this beyond localhost.
