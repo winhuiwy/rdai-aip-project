@@ -13,6 +13,7 @@ project/
 │   ├── __init__.py
 │   ├── model.py      # loads the model + tokenizer, runs generation
 │   └── main.py        # FastAPI app: HTTP endpoints
+├── chat.py               # local script for an interactive back-and-forth chat
 ├── requirements.txt    # Python dependencies (pinned versions)
 ├── Dockerfile           # how to build the container image
 ├── .dockerignore
@@ -39,6 +40,36 @@ curl -X POST http://localhost:8000/generate \
 Or open `http://localhost:8000/docs` in a browser for FastAPI's
 auto-generated interactive API docs (Swagger UI) — you can try requests
 directly from there without curl.
+
+### Having an actual back-and-forth conversation
+
+`/generate` is single-turn: one prompt in, one reply out, no memory of
+anything before it. For a real conversation, use `/chat`, which takes the
+*entire* message history and returns the next assistant reply:
+
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {"role": "user", "content": "My name is Alex."},
+      {"role": "assistant", "content": "Nice to meet you, Alex!"},
+      {"role": "user", "content": "What is my name?"}
+    ]
+  }'
+```
+
+Doing this by hand over curl gets tedious fast, so there's also a tiny
+interactive script — run it on your host machine (not inside Docker) while
+the container is running:
+
+```bash
+python chat.py
+```
+
+It just loops: read what you type, append it to a local `messages` list,
+POST the whole list to `/chat`, print the reply, append that reply too, and
+repeat.
 
 ## What's actually happening behind the scenes
 
@@ -69,6 +100,31 @@ The model is loaded **once**, into a single shared `ChatModel` instance, when
 the server process starts — not on every request. Loading takes a couple of
 seconds and holds the weights in memory (~2GB of RAM for this model in
 float32); reloading per-request would make every call painfully slow.
+
+#### Why "conversation" needs the whole history every time
+
+The model has no built-in memory — each call to `model.generate(...)` is
+completely independent of any previous call. What makes something feel like
+a back-and-forth *conversation* is that `apply_chat_template` can take a
+*list* of `{role, content}` turns (system/user/assistant), not just one
+prompt, and format them all into a single block of text with the right
+markers — e.g. "here's the system instructions, here's what the user said,
+here's what you (the assistant) replied, here's what the user said next" —
+before asking the model to predict what comes after that.
+
+So the `/chat` endpoint doesn't give the model memory; it makes the
+**caller** responsible for resending the entire conversation so far on every
+request, and the model re-reads all of it each time to generate the next
+reply. This is exactly how OpenAI's and Anthropic's chat APIs work too. Two
+consequences worth knowing:
+- The server stays **stateless** — no per-user session data to manage, which
+  makes it trivial to scale (any instance can handle any request) and safe
+  to restart. This is why it fits `/health`-check-and-replace deployment
+  patterns well.
+- Cost/latency grows with conversation length, since the model reprocesses
+  the whole history every turn. Real systems mitigate this with a KV cache
+  across turns, or by truncating/summarizing old messages — out of scope
+  for this simple version, but worth knowing about.
 
 ### 2. The FastAPI app (`app/main.py`)
 

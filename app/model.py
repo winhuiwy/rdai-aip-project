@@ -7,9 +7,15 @@ startup (to load them from the local cache into memory).
 
 import logging
 from threading import Lock
+from typing import TypedDict
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
+
+class Message(TypedDict):
+    role: str  # "system", "user", or "assistant"
+    content: str
 
 MODEL_NAME = "Qwen/Qwen2.5-0.5B-Instruct"
 
@@ -37,10 +43,18 @@ class ChatModel:
         logger.info("Model loaded.")
 
     def generate(self, prompt: str, max_new_tokens: int = 200) -> str:
+        """Single-turn convenience wrapper: one user message in, text out."""
+        return self.chat([{"role": "user", "content": prompt}], max_new_tokens)
+
+    def chat(self, messages: list[Message], max_new_tokens: int = 200) -> str:
+        """Multi-turn generation: the caller passes the *entire* conversation
+        so far (system/user/assistant turns), and we generate the next
+        assistant reply. The model itself has no memory between calls — this
+        is what makes a stateless server capable of holding a conversation.
+        """
         if self.model is None or self.tokenizer is None:
             raise RuntimeError("Model has not been loaded yet")
 
-        messages = [{"role": "user", "content": prompt}]
         chat_text = self.tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
